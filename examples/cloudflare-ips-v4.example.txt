@@ -1,0 +1,8 @@
+# Synthetic fixture for tests and --dry-run demos. NOT the real Cloudflare list.
+# Fetch the authoritative list from https://www.cloudflare.com/ips-v4
+198.51.100.0/24
+203.0.113.0/24
+192.0.2.0/24
+198.18.0.0/16
+233.252.0.0/24
+240.0.0.0/8
