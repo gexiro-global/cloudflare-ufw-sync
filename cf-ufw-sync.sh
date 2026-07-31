@@ -14,7 +14,7 @@
 #   CF_UFW_LOG    log destination (default: /var/log/cf-ufw-sync.log, "-" for stdout)
 #   CF_UFW_PORTS  default port list when --ports is not given
 #
-# Exit codes: 0 ok | 1 fetch/sanity failure | 2 usage error
+# Exit codes: 0 ok | 1 fetch/sanity failure, or a rule failed to install | 2 usage error
 set -uo pipefail
 
 LOG="${CF_UFW_LOG:-/var/log/cf-ufw-sync.log}"
@@ -64,18 +64,23 @@ fi
 
 # --- pass 1: add anything missing -------------------------------------------
 ADDED=0
+ADD_FAILED=0
 while IFS= read -r cidr; do
   is_cidr "$cidr" || continue
   for p in $PORTS; do
     if ufw status 2>/dev/null | grep -F "$cidr" | grep -qw "$p"; then continue; fi
     if [ "$DRY" = "1" ]; then
       log "DRY-RUN would-add $cidr port $p"
+      ADDED=$((ADDED+1))
+    elif ufw allow from "$cidr" to any port "$p" proto tcp comment cf-sync >/dev/null 2>&1; then
+      log "ADDED $cidr port $p"
+      ADDED=$((ADDED+1))
     else
-      ufw allow from "$cidr" to any port "$p" proto tcp comment cf-sync >/dev/null 2>&1 \
-        && log "ADDED $cidr port $p" \
-        || log "ADD-FAIL $cidr port $p"
+      # A rule that failed to install is not an addition. Counting it would report success
+      # for a firewall that was never actually changed.
+      log "ADD-FAIL $cidr port $p"
+      ADD_FAILED=$((ADD_FAILED+1))
     fi
-    ADDED=$((ADDED+1))
   done
 done <<< "$RANGES"
 
@@ -83,11 +88,18 @@ done <<< "$RANGES"
 FIRST_PORT=$(echo $PORTS | awk '{print $1}')
 CURRENT=$(iptables -S ufw-user-input 2>/dev/null \
   | grep "dport $FIRST_PORT" | grep -oE '[0-9.]+/[0-9]+' | sort -u)
+if [ "$WANT_V6" = "1" ]; then
+  # iptables only knows IPv4; the v6 rules live in ip6tables, and omitting them would mean
+  # retired Cloudflare IPv6 ranges are never reported as stale.
+  CURRENT=$(printf '%s\n%s\n' "$CURRENT" "$(ip6tables -S ufw6-user-input 2>/dev/null \
+    | grep "dport $FIRST_PORT" | grep -oiE '[0-9a-f:]+/[0-9]+' | sort -u)")
+fi
 STALE=0
 while IFS= read -r have; do
   [ -z "$have" ] && continue
   printf '%s\n' "$RANGES" | grep -qxF "$have" || { log "STALE-ALERT $have review-manually"; STALE=$((STALE+1)); }
 done <<< "$CURRENT"
 
-log "OK ranges=$CNT added=$ADDED stale=$STALE dry_run=$DRY"
+log "OK ranges=$CNT added=$ADDED add_failed=$ADD_FAILED stale=$STALE dry_run=$DRY"
+[ "$ADD_FAILED" -eq 0 ] || exit 1
 exit 0

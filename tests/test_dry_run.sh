@@ -14,4 +14,19 @@ if CF_UFW_LOG=- "$HERE/../cf-ufw-sync.sh" --dry-run --source-file "$TMP" >/dev/n
   echo 'FAIL: truncated list was accepted'; rm -f "$TMP"; exit 1
 fi
 rm -f "$TMP"
+
+# A rule that ufw refuses to install must not be counted as added, and must fail the run.
+STUB=$(mktemp -d)
+printf '#!/bin/bash\ncase "$1" in status) exit 0;; *) exit 1;; esac\n' > "$STUB/ufw"
+chmod +x "$STUB/ufw"
+set +e
+OUT=$(PATH="$STUB:$PATH" CF_UFW_LOG=- "$HERE/../cf-ufw-sync.sh" \
+        --source-file "$HERE/../examples/cloudflare-ips-v4.example.txt" 2>&1)
+RC=$?
+set -e
+rm -rf "$STUB"
+echo "$OUT" | grep -q 'ADD-FAIL'   || { echo 'FAIL: a failed ufw call was not logged as ADD-FAIL'; exit 1; }
+echo "$OUT" | grep -q 'added=0'    || { echo 'FAIL: a failed rule was counted as added'; exit 1; }
+[ "$RC" -eq 1 ]                    || { echo "FAIL: expected exit 1 on install failure, got $RC"; exit 1; }
+
 echo 'PASS'

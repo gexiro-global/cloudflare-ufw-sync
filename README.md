@@ -1,6 +1,6 @@
 # cf-ufw-sync
 
-[![CI](https://github.com/gexiro-global/cloudflare-ufw-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/gexiro-global/cloudflare-ufw-sync/actions/workflows/ci.yml)
+[![CI](https://github.com/dzeusking-dev/cloudflare-ufw-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/dzeusking-dev/cloudflare-ufw-sync/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![ShellCheck](https://img.shields.io/badge/shellcheck-clean-brightgreen.svg)](.github/workflows/ci.yml)
 
@@ -30,7 +30,7 @@ can see the diff before it exists.
 ## Install
 
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/gexiro-global/cloudflare-ufw-sync/main/cf-ufw-sync.sh
+curl -fsSLO https://raw.githubusercontent.com/dzeusking-dev/cloudflare-ufw-sync/main/cf-ufw-sync.sh
 chmod +x cf-ufw-sync.sh
 sudo mv cf-ufw-sync.sh /usr/local/bin/cf-ufw-sync
 ```
@@ -67,7 +67,7 @@ Run it from cron once a day:
 2026-01-01T04:17:00Z OK ranges=15 added=1 stale=1 dry_run=0
 ```
 
-Exit codes: `0` success, `1` fetch or sanity failure (nothing changed), `2` usage error.
+Exit codes: `0` success, `1` fetch or sanity failure (nothing changed) **or one or more `ufw` rules failed to install**, `2` usage error. A rule that fails to install is logged as `ADD-FAIL`, is not counted as an addition, and fails the run - a firewall sync that silently reports success while changing nothing is worse than one that errors.
 
 ## What this tool does NOT do
 
