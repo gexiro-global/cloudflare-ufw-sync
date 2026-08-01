@@ -29,4 +29,18 @@ echo "$OUT" | grep -q 'ADD-FAIL'   || { echo 'FAIL: a failed ufw call was not lo
 echo "$OUT" | grep -q 'added=0'    || { echo 'FAIL: a failed rule was counted as added'; exit 1; }
 [ "$RC" -eq 1 ]                    || { echo "FAIL: expected exit 1 on install failure, got $RC"; exit 1; }
 
+# A response that is mostly unparseable must abort. Filtering junk out and then sanity-checking
+# only the survivors lets a mangled fetch through whenever enough plausible lines remain.
+TMP2=$(mktemp)
+printf '198.51.100.0/24\n203.0.113.0/24\n192.0.2.0/24\n198.18.0.0/16\n233.252.0.0/24\n' > "$TMP2"
+printf 'not-a-range\njunk\njunk2\njunk3\njunk4\njunk5\n' >> "$TMP2"
+set +e
+OUT=$(CF_UFW_LOG=- "$HERE/../cf-ufw-sync.sh" --dry-run --source-file "$TMP2" 2>&1)
+RC=$?
+set -e
+rm -f "$TMP2"
+[ "$RC" -eq 1 ] || { echo "FAIL: a mostly-unparseable list was accepted (rc=$RC)"; exit 1; }
+echo "$OUT" | grep -q 'refusing to act on this list' \
+  || { echo 'FAIL: no abort reason was logged'; exit 1; }
+
 echo 'PASS'

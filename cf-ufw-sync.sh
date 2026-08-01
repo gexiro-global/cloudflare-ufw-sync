@@ -53,13 +53,26 @@ fetch(){
   if [ "$WANT_V6" = "1" ]; then echo; curl -fsS --max-time 20 "$V6_URL" || return 1; fi
 }
 
-RANGES=$(fetch) || { log "FETCH-FAIL"; exit 1; }
-RANGES=$(printf '%s\n' "$RANGES" | grep -E '^[0-9a-fA-F:.]+/[0-9]{1,3}$' | sort -u)
+RAW=$(fetch) || { log "FETCH-FAIL"; exit 1; }
+RAW_LINES=$(printf '%s\n' "$RAW" | grep -c '[^[:space:]]')
+RANGES=$(printf '%s\n' "$RAW" | grep -E '^[0-9a-fA-F:.]+/[0-9]{1,3}$' | sort -u)
 CNT=$(printf '%s\n' "$RANGES" | grep -c . )
+DROPPED=$((RAW_LINES - CNT))
 
 if [ "$CNT" -lt "$MIN_RANGES" ] || [ "$CNT" -gt "$MAX_RANGES" ]; then
   log "ABORT implausible-range-count=$CNT (expected ${MIN_RANGES}..${MAX_RANGES})"
   exit 1
+fi
+
+# Discarding unparseable lines and then sanity-checking only the survivors means a mangled
+# response can still pass, as long as enough plausible-looking lines remain. If the fetch was
+# mostly junk, treat the whole list as untrustworthy and change nothing.
+if [ "$DROPPED" -gt 0 ]; then
+  log "WARN dropped $DROPPED unparseable line(s) from the fetched list"
+  if [ "$DROPPED" -ge "$CNT" ]; then
+    log "ABORT more unparseable lines ($DROPPED) than valid ranges ($CNT) - refusing to act on this list"
+    exit 1
+  fi
 fi
 
 # --- pass 1: add anything missing -------------------------------------------
