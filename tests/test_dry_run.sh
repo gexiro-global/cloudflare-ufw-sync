@@ -43,4 +43,18 @@ rm -f "$TMP2"
 echo "$OUT" | grep -q 'refusing to act on this list' \
   || { echo 'FAIL: no abort reason was logged'; exit 1; }
 
+# Duplicates and comments are not junk. Counting them as unparseable both misreported the
+# warning and could reject a perfectly valid list.
+TMP3=$(mktemp)
+printf '198.51.100.0/24\n198.51.100.0/24\n203.0.113.0/24\n' > "$TMP3"
+printf '192.0.2.0/24\n198.18.0.0/16\n233.252.0.0/24\n# a comment\n' >> "$TMP3"
+set +e
+OUT=$(CF_UFW_LOG=- "$HERE/../cf-ufw-sync.sh" --dry-run --source-file "$TMP3" 2>&1)
+RC=$?
+set -e
+rm -f "$TMP3"
+[ "$RC" -eq 0 ] || { echo "FAIL: a list with duplicates and a comment was rejected (rc=$RC)"; exit 1; }
+echo "$OUT" | grep -q 'ABORT' && { echo 'FAIL: duplicates were treated as junk'; exit 1; }
+echo "$OUT" | grep -q 'ranges=5' || { echo 'FAIL: expected 5 unique ranges'; exit 1; }
+
 echo 'PASS'

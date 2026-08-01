@@ -54,10 +54,14 @@ fetch(){
 }
 
 RAW=$(fetch) || { log "FETCH-FAIL"; exit 1; }
-RAW_LINES=$(printf '%s\n' "$RAW" | grep -c '[^[:space:]]')
+# Count the lines that actually failed to parse, rather than subtracting the de-duplicated
+# total from the raw line count - duplicates and comments are not junk, and counting them as
+# junk both misreports the warning and can reject a perfectly good list.
+DROPPED=$(printf '%s\n' "$RAW" \
+  | grep -v '^[[:space:]]*$' | grep -v '^[[:space:]]*#' \
+  | grep -cvE '^[0-9a-fA-F:.]+/[0-9]{1,3}$')
 RANGES=$(printf '%s\n' "$RAW" | grep -E '^[0-9a-fA-F:.]+/[0-9]{1,3}$' | sort -u)
 CNT=$(printf '%s\n' "$RANGES" | grep -c . )
-DROPPED=$((RAW_LINES - CNT))
 
 if [ "$CNT" -lt "$MIN_RANGES" ] || [ "$CNT" -gt "$MAX_RANGES" ]; then
   log "ABORT implausible-range-count=$CNT (expected ${MIN_RANGES}..${MAX_RANGES})"
