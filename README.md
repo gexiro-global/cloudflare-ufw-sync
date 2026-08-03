@@ -2,7 +2,6 @@
 
 [![CI](https://github.com/dzeusking-dev/cloudflare-ufw-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/dzeusking-dev/cloudflare-ufw-sync/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![ShellCheck](https://img.shields.io/badge/shellcheck-clean-brightgreen.svg)](.github/workflows/ci.yml)
 
 Keep a UFW allowlist in sync with Cloudflare's published IP ranges — without ever locking yourself out.
 

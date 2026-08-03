@@ -1,5 +1,11 @@
 #!/bin/bash
 # Offline test: no network, no ufw changes. Verifies parsing, sanity bounds and dry-run.
+# shellcheck disable=SC2015,SC2016,SC2181
+# SC2015: the `[ cond ] && ok "..." || no "..."` shape is intentional here - `ok` cannot fail,
+#         so this is a two-branch report, not a mis-written if-then-else.
+# SC2016: single quotes are deliberate where a literal `$` belongs to awk, python or a stub.
+# SC2181: these suites check `$?` immediately after the command under test, which is the
+#         thing being asserted.
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 OUT=$(CF_UFW_LOG=- "$HERE/../cf-ufw-sync.sh" --dry-run --source-file "$HERE/../examples/cloudflare-ips-v4.example.txt")

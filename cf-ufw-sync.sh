@@ -45,6 +45,16 @@ done
 TS=$(date -u +%FT%TZ)
 log(){ if [ "$LOG" = "-" ]; then echo "$TS $*"; else echo "$TS $*" >> "$LOG"; fi; }
 
+# Two cron runs overlapping would race each other into duplicate `ufw allow` calls and interleave
+# the log. Take an exclusive lock; a second run exits quietly rather than queueing.
+LOCK="${CF_UFW_LOCK:-/tmp/cf-ufw-sync.lock}"
+if [ "$DRY" = "0" ]; then
+  { exec 9>"$LOCK"; } 2>/dev/null || true
+  if command -v flock >/dev/null 2>&1 && [ -e "$LOCK" ]; then
+    flock -n 9 || { log "SKIP another run holds $LOCK"; exit 0; }
+  fi
+fi
+
 is_cidr(){ printf '%s\n' "$1" | grep -qE '^[0-9a-fA-F:.]+/[0-9]{1,3}$'; }
 
 fetch(){
@@ -102,9 +112,16 @@ while IFS= read -r cidr; do
 done <<< "$RANGES"
 
 # --- pass 2: report ranges we allow that Cloudflare no longer publishes ------
-FIRST_PORT=$(echo $PORTS | awk '{print $1}')
+FIRST_PORT=${PORTS%% *}
+# Only consider rules this script created. Reporting hand-made allow rules as "stale Cloudflare
+# ranges" sends the operator to review something that was never ours to manage.
 CURRENT=$(iptables -S ufw-user-input 2>/dev/null \
-  | grep "dport $FIRST_PORT" | grep -oE '[0-9.]+/[0-9]+' | sort -u)
+  | grep "dport $FIRST_PORT" | grep -i 'cf-sync' | grep -oE '[0-9.]+/[0-9]+' | sort -u)
+if [ -z "$CURRENT" ]; then
+  CURRENT=$(iptables -S ufw-user-input 2>/dev/null \
+    | grep "dport $FIRST_PORT" | grep -oE '[0-9.]+/[0-9]+' | sort -u)
+  [ -n "$CURRENT" ] && log "NOTE no cf-sync-tagged rules found; stale check covers all rules on port $FIRST_PORT"
+fi
 if [ "$WANT_V6" = "1" ]; then
   # iptables only knows IPv4; the v6 rules live in ip6tables, and omitting them would mean
   # retired Cloudflare IPv6 ranges are never reported as stale.
