@@ -63,4 +63,54 @@ rm -f "$TMP3"
 echo "$OUT" | grep -q 'ABORT' && { echo 'FAIL: duplicates were treated as junk'; exit 1; }
 echo "$OUT" | grep -q 'ranges=5' || { echo 'FAIL: expected 5 unique ranges'; exit 1; }
 
+# --- strict validation -------------------------------------------------------------
+# Shape-only checking accepted impossible addresses and deferred rejection to ufw.
+BAD=$(mktemp)
+printf '999.999.999.999/999\n1.2.3.4/33\n1.2.3/24\n1.2.3.4.5/24\n256.0.0.0/8\n' > "$BAD"
+set +e
+OUT=$(CF_UFW_LOG=- "$HERE/../cf-ufw-sync.sh" --dry-run --source-file "$BAD" 2>&1)
+RC=$?
+set -e
+rm -f "$BAD"
+[ "$RC" -ne 0 ] || { echo 'FAIL: a list of impossible CIDRs was accepted'; exit 1; }
+echo "$OUT" | grep -q 'range-count=0' \
+  || { echo 'FAIL: invalid CIDRs were not all rejected'; exit 1; }
+
+# Valid IPv6 must still be accepted, or --ipv6 would be useless.
+V6=$(mktemp)
+printf '2400:cb00::/32\n2606:4700::/32\n2803:f800::/32\n2405:b500::/32\n2405:8100::/32\n' > "$V6"
+set +e
+OUT=$(CF_UFW_LOG=- "$HERE/../cf-ufw-sync.sh" --dry-run --ipv6 --source-file "$V6" 2>&1)
+RC=$?
+set -e
+rm -f "$V6"
+[ "$RC" -eq 0 ] || { echo "FAIL: valid IPv6 ranges were rejected (rc=$RC)"; exit 1; }
+echo "$OUT" | grep -q 'ranges=5' || { echo 'FAIL: expected 5 IPv6 ranges'; exit 1; }
+
+# Ports are operator input and must be validated before they reach ufw.
+set +e
+CF_UFW_LOG=- "$HERE/../cf-ufw-sync.sh" --dry-run --ports 'abc' --source-file /dev/null >/dev/null 2>&1
+RC_A=$?
+CF_UFW_LOG=- "$HERE/../cf-ufw-sync.sh" --dry-run --ports '70000' --source-file /dev/null >/dev/null 2>&1
+RC_B=$?
+set -e
+[ "$RC_A" -eq 2 ] || { echo "FAIL: a non-numeric port was accepted (rc=$RC_A)"; exit 1; }
+[ "$RC_B" -eq 2 ] || { echo "FAIL: an out-of-range port was accepted (rc=$RC_B)"; exit 1; }
+
+# --- fail closed -------------------------------------------------------------------
+# A log that cannot be written must stop the run before any firewall rule changes.
+STUB=$(mktemp -d)
+printf '%s\n' '#!/bin/bash' 'exit 0' > "$STUB/ufw"
+printf '%s\n' '#!/bin/bash' 'exit 0' > "$STUB/flock"
+chmod +x "$STUB/ufw" "$STUB/flock"
+set +e
+OUT=$(PATH="$STUB:$PATH" CF_UFW_LOG=/dev/null/cannot.log CF_UFW_LOCK="$STUB/lk" \
+      "$HERE/../cf-ufw-sync.sh" --source-file "$HERE/../examples/cloudflare-ips-v4.example.txt" 2>&1)
+RC=$?
+set -e
+rm -rf "$STUB"
+[ "$RC" -eq 1 ] || { echo "FAIL: ran with an unwritable log (rc=$RC)"; exit 1; }
+echo "$OUT" | grep -q 'refusing to change firewall rules' \
+  || { echo 'FAIL: no reason given for refusing'; exit 1; }
+
 echo 'PASS'
