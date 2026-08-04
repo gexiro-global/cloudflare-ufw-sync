@@ -81,30 +81,17 @@ if [ "$DRY" = "0" ] && [ "$LOG" != "-" ]; then
   fi
 fi
 
-# Validate the address, not just its shape: octets 0-255 and a prefix within range. The old
-# pattern accepted 999.999.999.999/999 and deferred the rejection to ufw.
+# Validate with the standard library rather than a hand-rolled parser. The previous version
+# accepted 1::2::3/64 and 1:2:3:4:5:6:7:8:9/64 - IPv6 has more ways to be malformed than a
+# regex comfortably covers, and getting it wrong means handing nonsense to the firewall.
 is_cidr(){
-  printf '%s\n' "$1" | awk -F/ '
-    NF != 2 { exit 1 }
-    {
-      addr = $1; pfx = $2
-      if (pfx !~ /^[0-9]+$/) exit 1
-      if (addr ~ /:/) {                      # IPv6
-        if (pfx + 0 > 128) exit 1
-        if (addr !~ /^[0-9a-fA-F:]+$/) exit 1
-        if (addr ~ /:::/) exit 1
-        exit 0
-      }
-      if (pfx + 0 > 32) exit 1               # IPv4
-      n = split(addr, o, ".")
-      if (n != 4) exit 1
-      for (i = 1; i <= 4; i++) {
-        if (o[i] !~ /^[0-9]+$/) exit 1
-        if (length(o[i]) > 3) exit 1
-        if (o[i] + 0 > 255) exit 1
-      }
-      exit 0
-    }'
+  CIDR_CANDIDATE="$1" python3 -c '
+import ipaddress, os, sys
+try:
+    ipaddress.ip_network(os.environ["CIDR_CANDIDATE"], strict=False)
+except Exception:
+    sys.exit(1)
+' 2>/dev/null
 }
 
 fetch(){
@@ -172,11 +159,19 @@ done <<< "$RANGES"
 FIRST_PORT=${PORTS%% *}
 # Only consider rules this script created. Reporting hand-made allow rules as "stale Cloudflare
 # ranges" sends the operator to review something that was never ours to manage.
-CURRENT=$(iptables -S ufw-user-input 2>/dev/null \
+IPT_RAW=$(iptables -S ufw-user-input 2>/dev/null)
+IPT_RC=$?
+CURRENT=$(printf '%s\n' "$IPT_RAW" \
   | grep "dport $FIRST_PORT" | grep -i 'cf-sync' | grep -oE '[0-9.]+/[0-9]+' | sort -u)
 # No fallback to untagged rules. Reporting a hand-made allow rule as a retired Cloudflare
 # range sends the operator to review something this tool never managed.
-if [ -z "$CURRENT" ]; then
+#
+# And a firewall query that failed is not the same as one that found nothing: saying "stale=0"
+# after iptables errored claims a check that never happened.
+if [ "$IPT_RC" -ne 0 ]; then
+  log "STALE-CHECK-UNKNOWN iptables exited $IPT_RC; existing rules could not be read"
+  STALE=unknown
+elif [ -z "$CURRENT" ]; then
   log "NOTE no cf-sync-tagged rules found; nothing to check for staleness"
 fi
 if [ "$WANT_V6" = "1" ]; then
