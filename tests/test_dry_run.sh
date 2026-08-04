@@ -113,4 +113,25 @@ rm -rf "$STUB"
 echo "$OUT" | grep -q 'refusing to change firewall rules' \
   || { echo 'FAIL: no reason given for refusing'; exit 1; }
 
+# --- a check that could not run must not report a number ---------------------------
+# The first attempt at this set STALE=unknown and was then overwritten by STALE=0 further
+# down, so the summary still claimed stale=0 after iptables had failed.
+FC=$(mktemp -d)
+printf '%s\n' '#!/bin/bash' 'exit 3' > "$FC/iptables"
+printf '%s\n' '#!/bin/bash' 'exit 3' > "$FC/ip6tables"
+printf '%s\n' '#!/bin/bash' 'exit 0' > "$FC/ufw"
+printf '%s\n' '#!/bin/bash' 'exit 0' > "$FC/flock"
+chmod +x "$FC/iptables" "$FC/ip6tables" "$FC/ufw" "$FC/flock"
+set +e
+OUT=$(PATH="$FC:$PATH" CF_UFW_LOG=- CF_UFW_LOCK="$FC/lk" \
+      "$HERE/../cf-ufw-sync.sh" --source-file "$HERE/../examples/cloudflare-ips-v4.example.txt" 2>&1)
+set -e
+rm -rf "$FC"
+echo "$OUT" | grep -q 'STALE-CHECK-UNKNOWN' \
+  || { echo 'FAIL: a failing iptables was not reported as unknown'; exit 1; }
+echo "$OUT" | grep -q 'stale=unknown' \
+  || { echo 'FAIL: the summary reported a stale count after the check failed'; exit 1; }
+echo "$OUT" | grep -q 'stale=0' \
+  && { echo 'FAIL: the summary still claims stale=0'; exit 1; }
+
 echo 'PASS'

@@ -34,7 +34,12 @@ chmod +x cf-ufw-sync.sh
 sudo mv cf-ufw-sync.sh /usr/local/bin/cf-ufw-sync
 ```
 
-Requires `bash`, `curl`, `ufw`, and `iptables` (used read-only, for the stale check).
+Requires `bash`, `curl`, `ufw`, `flock`, `python3`, and `iptables`/`ip6tables` (read-only,
+for the stale check).
+
+`flock` and `python3` are not optional: the run is serialised with a lock, and address
+validation is delegated to python's `ipaddress` rather than a hand-rolled regex. If either is
+missing the script refuses to start rather than proceeding without the property it promises.
 
 ## Usage
 
@@ -57,13 +62,14 @@ Run it from cron once a day:
 |---|---|---|
 | `CF_UFW_LOG` | `/var/log/cf-ufw-sync.log` | Log destination. Use `-` for stdout. |
 | `CF_UFW_PORTS` | `80 443` | Default port list. |
+| `CF_UFW_LOCK` | `/tmp/cf-ufw-sync.lock` | Lock file serialising concurrent runs. |
 
 ### Log lines
 
 ```
 2026-01-01T04:17:00Z ADDED 198.51.100.0/24 port 443
 2026-01-01T04:17:00Z STALE-ALERT 203.0.113.0/24 review-manually
-2026-01-01T04:17:00Z OK ranges=15 added=1 stale=1 dry_run=0
+2026-01-01T04:17:00Z OK ranges=15 added=1 add_failed=0 stale=1 dry_run=0
 ```
 
 Exit codes: `0` success, `1` fetch or sanity failure (nothing changed) **or one or more `ufw` rules failed to install**, `2` usage error. A rule that fails to install is logged as `ADD-FAIL`, is not counted as an addition, and fails the run - a firewall sync that silently reports success while changing nothing is worse than one that errors.

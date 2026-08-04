@@ -168,17 +168,25 @@ CURRENT=$(printf '%s\n' "$IPT_RAW" \
 #
 # And a firewall query that failed is not the same as one that found nothing: saying "stale=0"
 # after iptables errored claims a check that never happened.
+STALE_UNKNOWN=0
 if [ "$IPT_RC" -ne 0 ]; then
   log "STALE-CHECK-UNKNOWN iptables exited $IPT_RC; existing rules could not be read"
-  STALE=unknown
+  STALE_UNKNOWN=1
 elif [ -z "$CURRENT" ]; then
   log "NOTE no cf-sync-tagged rules found; nothing to check for staleness"
 fi
 if [ "$WANT_V6" = "1" ]; then
   # iptables only knows IPv4; the v6 rules live in ip6tables, and omitting them would mean
   # retired Cloudflare IPv6 ranges are never reported as stale.
-  CURRENT=$(printf '%s\n%s\n' "$CURRENT" "$(ip6tables -S ufw6-user-input 2>/dev/null \
-    | grep "dport $FIRST_PORT" | grep -i 'cf-sync' | grep -oiE '[0-9a-f:]+/[0-9]+' | sort -u)")
+  IP6_RAW=$(ip6tables -S ufw6-user-input 2>/dev/null)
+  IP6_RC=$?
+  if [ "$IP6_RC" -ne 0 ]; then
+    log "STALE-CHECK-UNKNOWN ip6tables exited $IP6_RC; v6 rules could not be read"
+    STALE_UNKNOWN=1
+  else
+    CURRENT=$(printf '%s\n%s\n' "$CURRENT" "$(printf '%s\n' "$IP6_RAW" \
+      | grep "dport $FIRST_PORT" | grep -i 'cf-sync' | grep -oiE '[0-9a-f:]+/[0-9]+' | sort -u)")
+  fi
 fi
 STALE=0
 while IFS= read -r have; do
@@ -186,6 +194,11 @@ while IFS= read -r have; do
   printf '%s\n' "$RANGES" | grep -qxF "$have" || { log "STALE-ALERT $have review-manually"; STALE=$((STALE+1)); }
 done <<< "$CURRENT"
 
-log "OK ranges=$CNT added=$ADDED add_failed=$ADD_FAILED stale=$STALE dry_run=$DRY"
+if [ "$STALE_UNKNOWN" = 1 ]; then
+  STALE_REPORT=unknown
+else
+  STALE_REPORT=$STALE
+fi
+log "OK ranges=$CNT added=$ADDED add_failed=$ADD_FAILED stale=$STALE_REPORT dry_run=$DRY"
 [ "$ADD_FAILED" -eq 0 ] || exit 1
 exit 0
