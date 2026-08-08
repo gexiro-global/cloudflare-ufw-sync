@@ -180,4 +180,20 @@ rm -rf "$SL"
 [ "$RC" -eq 1 ] || { echo "FAIL: a symlinked lock dir should abort with exit 1, got $RC"; exit 1; }
 echo "$OUT" | grep -q 'unsafe lock dir' || { echo 'FAIL: symlinked lock dir not reported unsafe'; exit 1; }
 
+# --- the CWE-59 primitive is gone: a planted symlink target must NOT be truncated ---
+# Point the lock path at a symlink to a victim file with content. The old `>` open
+# would have zeroed it; the new read-only directory open must leave it intact.
+VIC=$(mktemp -d)
+printf 'DO-NOT-TRUNCATE\n' > "$VIC/victim"
+ln -s "$VIC/victim" "$VIC/lock"   # lock path is a symlink to a regular file
+set +e
+CF_UFW_LOG=- CF_UFW_LOCK_DIR="$VIC/lock" \
+  "$HERE/../cf-ufw-sync.sh" --source-file "$HERE/../examples/cloudflare-ips-v4.example.txt" >/dev/null 2>&1
+RC=$?
+set -e
+CONTENT=$(cat "$VIC/victim")
+rm -rf "$VIC"
+[ "$RC" -eq 1 ] || { echo "FAIL: symlink-to-file lock path should abort (got $RC)"; exit 1; }
+[ "$CONTENT" = 'DO-NOT-TRUNCATE' ] || { echo 'FAIL: the symlink target was truncated (CWE-59 not fixed)'; exit 1; }
+
 echo 'PASS'

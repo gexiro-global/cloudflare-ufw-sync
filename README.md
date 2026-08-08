@@ -62,7 +62,7 @@ Run it from cron once a day:
 |---|---|---|
 | `CF_UFW_LOG` | `/var/log/cf-ufw-sync.log` | Log destination. Use `-` for stdout. |
 | `CF_UFW_PORTS` | `80 443` | Default port list. |
-| `CF_UFW_LOCK` | `/tmp/cf-ufw-sync.lock` | Lock file serialising concurrent runs. |
+| `CF_UFW_LOCK_DIR` | `/run/lock/cf-ufw-sync` (root) | Directory (not a file) flock'd to serialise concurrent runs. Must be a non-symlink directory you own; opened read-only, so it is never truncated. |
 
 ### Log lines
 
