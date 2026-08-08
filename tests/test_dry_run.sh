@@ -196,4 +196,21 @@ rm -rf "$VIC"
 [ "$RC" -eq 1 ] || { echo "FAIL: symlink-to-file lock path should abort (got $RC)"; exit 1; }
 [ "$CONTENT" = 'DO-NOT-TRUNCATE' ] || { echo 'FAIL: the symlink target was truncated (CWE-59 not fixed)'; exit 1; }
 
+# --- a lock dir owned by another user must be refused --------------------------------
+# Best-effort: needs the ability to change ownership, so it runs only where we can
+# (e.g. as root). Reverting the owner comparison would make this fail there.
+if [ "$(id -u)" -eq 0 ]; then
+  NO=$(mktemp -d); mkdir "$NO/d"; chown 65534 "$NO/d" 2>/dev/null || true
+  if [ "$(stat -c %u "$NO/d" 2>/dev/null)" != "0" ]; then
+    set +e
+    OUT=$(CF_UFW_LOG=- CF_UFW_LOCK_DIR="$NO/d" \
+          "$HERE/../cf-ufw-sync.sh" --source-file "$HERE/../examples/cloudflare-ips-v4.example.txt" 2>&1)
+    RC=$?
+    set -e
+    [ "$RC" -eq 1 ] || { echo "FAIL: a non-owned lock dir should abort (got $RC)"; rm -rf "$NO"; exit 1; }
+    echo "$OUT" | grep -q 'unsafe lock dir' || { echo 'FAIL: non-owned lock dir not reported unsafe'; rm -rf "$NO"; exit 1; }
+  fi
+  rm -rf "$NO"
+fi
+
 echo 'PASS'
