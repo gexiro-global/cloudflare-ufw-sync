@@ -123,8 +123,9 @@ printf '%s\n' '#!/bin/bash' 'exit 0' > "$FC/ufw"
 printf '%s\n' '#!/bin/bash' 'exit 0' > "$FC/flock"
 chmod +x "$FC/iptables" "$FC/ip6tables" "$FC/ufw" "$FC/flock"
 set +e
-OUT=$(PATH="$FC:$PATH" CF_UFW_LOG=- CF_UFW_LOCK="$FC/lk" \
+OUT=$(PATH="$FC:$PATH" CF_UFW_LOG=- CF_UFW_LOCK_DIR="$FC/lk" \
       "$HERE/../cf-ufw-sync.sh" --source-file "$HERE/../examples/cloudflare-ips-v4.example.txt" 2>&1)
+RC=$?
 set -e
 rm -rf "$FC"
 echo "$OUT" | grep -q 'STALE-CHECK-UNKNOWN' \
@@ -133,5 +134,50 @@ echo "$OUT" | grep -q 'stale=unknown' \
   || { echo 'FAIL: the summary reported a stale count after the check failed'; exit 1; }
 echo "$OUT" | grep -q 'stale=0' \
   && { echo 'FAIL: the summary still claims stale=0'; exit 1; }
+[ "$RC" -eq 5 ] || { echo "FAIL: incomplete stale verification should exit 5, got $RC"; exit 1; }
+echo "$OUT" | grep -q '^.*OK ranges=' && { echo 'FAIL: summary labelled OK after a failed check'; exit 1; }
+
+# --- ufw status failure must abort, not look like "rule absent" ---------------------
+# If `ufw status` fails, the old code fell through to `ufw allow` for every range.
+US=$(mktemp -d)
+printf '%s\n' '#!/bin/bash' 'case "$1" in status) exit 1;; *) echo ALLOWED; exit 0;; esac' > "$US/ufw"
+printf '%s\n' '#!/bin/bash' 'exit 0' > "$US/flock"
+chmod +x "$US/ufw" "$US/flock"
+set +e
+OUT=$(PATH="$US:$PATH" CF_UFW_LOG=- CF_UFW_LOCK_DIR="$US/lk" \
+      "$HERE/../cf-ufw-sync.sh" --source-file "$HERE/../examples/cloudflare-ips-v4.example.txt" 2>&1)
+RC=$?
+set -e
+rm -rf "$US"
+[ "$RC" -eq 1 ] || { echo "FAIL: a failed ufw status should abort with exit 1, got $RC"; exit 1; }
+echo "$OUT" | grep -q 'ufw status failed' || { echo 'FAIL: no abort reason for failed ufw status'; exit 1; }
+echo "$OUT" | grep -q 'ADDED' && { echo 'FAIL: added a rule against an unknown firewall state'; exit 1; }
+
+# --- lock contention must be a distinct nonzero (exit 4), not success ---------------
+if command -v flock >/dev/null 2>&1; then
+  LD=$(mktemp -d)/cf-ufw-sync; mkdir -p "$LD"
+  exec 200<"$LD"; flock -n 200 || { echo 'FAIL: test could not take its own lock'; exit 1; }
+  set +e
+  OUT=$(CF_UFW_LOG=- CF_UFW_LOCK_DIR="$LD" \
+        "$HERE/../cf-ufw-sync.sh" --source-file "$HERE/../examples/cloudflare-ips-v4.example.txt" 2>&1)
+  RC=$?
+  set -e
+  exec 200<&-
+  rm -rf "$(dirname "$LD")"
+  [ "$RC" -eq 4 ] || { echo "FAIL: lock contention should exit 4, got $RC"; exit 1; }
+  echo "$OUT" | grep -q 'SKIP another run holds the lock' || { echo 'FAIL: no SKIP log on contention'; exit 1; }
+fi
+
+# --- a symlinked lock dir must be refused (defence in depth) ------------------------
+SL=$(mktemp -d)
+ln -s /etc "$SL/link"
+set +e
+OUT=$(CF_UFW_LOG=- CF_UFW_LOCK_DIR="$SL/link" \
+      "$HERE/../cf-ufw-sync.sh" --source-file "$HERE/../examples/cloudflare-ips-v4.example.txt" 2>&1)
+RC=$?
+set -e
+rm -rf "$SL"
+[ "$RC" -eq 1 ] || { echo "FAIL: a symlinked lock dir should abort with exit 1, got $RC"; exit 1; }
+echo "$OUT" | grep -q 'unsafe lock dir' || { echo 'FAIL: symlinked lock dir not reported unsafe'; exit 1; }
 
 echo 'PASS'

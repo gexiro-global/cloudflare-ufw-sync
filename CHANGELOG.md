@@ -5,6 +5,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [0.1.0] - Unreleased
 
+### Security
+- Lock via a validated, owner-checked directory under `/run/lock` opened read-only
+  (a directory cannot be truncated), replacing a predictable `/tmp` lock file opened
+  with `>` that a local user could redirect at an arbitrary root-writable file (CWE-59).
+
+### Fixed
+- A failed `ufw status` now aborts instead of being treated as "rule absent" and
+  falling through to `ufw allow`.
+- Lock contention now exits `4` (distinct), and additions-applied-but-staleness-
+  unverifiable now exits `5` and is not labelled `OK`, so schedulers can tell a
+  completed sync from a skipped or partial one.
+
 ### Added
 - Initial public release.
 - Additive-only sync of Cloudflare IPv4 ranges into a UFW allowlist.

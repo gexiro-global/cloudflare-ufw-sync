@@ -15,6 +15,8 @@
 #   CF_UFW_PORTS  default port list when --ports is not given
 #
 # Exit codes: 0 ok | 1 fetch/sanity failure, or a rule failed to install | 2 usage error
+#             4 another run holds the lock (nothing done) | 5 additions applied but
+#               existing-rule/staleness verification could not be completed
 set -uo pipefail
 
 LOG="${CF_UFW_LOG:-/var/log/cf-ufw-sync.log}"
@@ -58,18 +60,34 @@ log(){ if [ "$LOG" = "-" ]; then echo "$TS $*"; else echo "$TS $*" >> "$LOG"; fi
 # interleave the log. This fails CLOSED: if the lock cannot be taken - no flock available, no
 # permission on the lock file - the run stops rather than proceeding unserialised. A firewall
 # tool that quietly drops its own safety property is worse than one that refuses to start.
-LOCK="${CF_UFW_LOCK:-/tmp/cf-ufw-sync.lock}"
+# Lock on a root-owned directory under /run/lock, opened READ-ONLY (a directory
+# cannot be truncated) with the path validated first. Opening a fixed, world-writable
+# /tmp path with `>` lets a local user pre-plant a symlink and redirect root's
+# truncation at an arbitrary file (CWE-59); a validated directory fd avoids that.
+MY_UID=$(id -u)
+if [ -n "${CF_UFW_LOCK_DIR:-}" ]; then LOCK_DIR="$CF_UFW_LOCK_DIR"
+elif [ "$MY_UID" = "0" ]; then LOCK_DIR=/run/lock/cf-ufw-sync
+else LOCK_DIR="${TMPDIR:-/tmp}/cf-ufw-sync-$MY_UID"; fi
 if [ "$DRY" = "0" ]; then
   command -v flock >/dev/null 2>&1 \
     || { log "ABORT flock is not available; refusing to run without serialisation"
          echo "flock is required so two runs cannot modify the firewall at once" >&2
          exit 1; }
-  if ! { exec 9>"$LOCK"; } 2>/dev/null; then
-    log "ABORT cannot open lock file $LOCK"
-    echo "cannot open lock file $LOCK - refusing to run unserialised" >&2
+  mkdir -p "$LOCK_DIR" 2>/dev/null
+  # Reject a symlink or a directory we do not own: a lock dir planted by another
+  # user must not be trusted. (Truncation is already impossible: we open the
+  # directory read-only below, so there is no target to overwrite.)
+  if [ -L "$LOCK_DIR" ] || [ ! -d "$LOCK_DIR" ] || [ "$(stat -c %u "$LOCK_DIR" 2>/dev/null)" != "$MY_UID" ]; then
+    log "ABORT unsafe lock dir $LOCK_DIR (must be a non-symlink directory owned by uid $MY_UID)"
+    echo "unsafe lock directory $LOCK_DIR - refusing to run" >&2
     exit 1
   fi
-  flock -n 9 || { log "SKIP another run holds $LOCK"; exit 0; }
+  if ! { exec 9<"$LOCK_DIR"; } 2>/dev/null; then
+    log "ABORT cannot open lock dir $LOCK_DIR"
+    echo "cannot open lock directory $LOCK_DIR - refusing to run unserialised" >&2
+    exit 1
+  fi
+  flock -n 9 || { log "SKIP another run holds the lock"; exit 4; }
 fi
 
 # The log is the only record of what was changed. If it cannot be written, stop before
@@ -133,13 +151,26 @@ if [ "$DROPPED" -gt 0 ]; then
   fi
 fi
 
+# Read the firewall state ONCE up front. A failed `ufw status` must not be
+# indistinguishable from "rule absent": that would fall through to `ufw allow` for
+# every range against a firewall whose real state we could not read.
+if [ "$DRY" = "0" ]; then
+  if ! UFW_STATUS=$(ufw status 2>/dev/null); then
+    log "ABORT ufw status failed; refusing to modify an unknown firewall state"
+    echo "ufw status failed - refusing to modify an unknown firewall state" >&2
+    exit 1
+  fi
+else
+  UFW_STATUS=$(ufw status 2>/dev/null) || UFW_STATUS=""
+fi
+
 # --- pass 1: add anything missing -------------------------------------------
 ADDED=0
 ADD_FAILED=0
 while IFS= read -r cidr; do
   is_cidr "$cidr" || continue
   for p in $PORTS; do
-    if ufw status 2>/dev/null | grep -F "$cidr" | grep -qw "$p"; then continue; fi
+    if printf '%s\n' "$UFW_STATUS" | grep -F "$cidr" | grep -qw "$p"; then continue; fi
     if [ "$DRY" = "1" ]; then
       log "DRY-RUN would-add $cidr port $p"
       ADDED=$((ADDED+1))
@@ -194,11 +225,18 @@ while IFS= read -r have; do
   printf '%s\n' "$RANGES" | grep -qxF "$have" || { log "STALE-ALERT $have review-manually"; STALE=$((STALE+1)); }
 done <<< "$CURRENT"
 
-if [ "$STALE_UNKNOWN" = 1 ]; then
-  STALE_REPORT=unknown
-else
-  STALE_REPORT=$STALE
+# A firewall query that failed is not a clean run. On a real run, additions may have
+# applied but staleness could not be verified, so do not label the summary OK or
+# exit 0. In --dry-run nothing was changed, so an unavailable check is not a failure.
+if [ "$STALE_UNKNOWN" = 1 ] && [ "$DRY" = "0" ]; then
+  log "INCOMPLETE ranges=$CNT added=$ADDED add_failed=$ADD_FAILED stale=unknown dry_run=$DRY (existing-rule verification failed)"
+  [ "$ADD_FAILED" -eq 0 ] || exit 1
+  exit 5
 fi
-log "OK ranges=$CNT added=$ADDED add_failed=$ADD_FAILED stale=$STALE_REPORT dry_run=$DRY"
+if [ "$STALE_UNKNOWN" = 1 ]; then
+  log "OK ranges=$CNT added=$ADDED add_failed=$ADD_FAILED stale=unknown dry_run=$DRY"
+else
+  log "OK ranges=$CNT added=$ADDED add_failed=$ADD_FAILED stale=$STALE dry_run=$DRY"
+fi
 [ "$ADD_FAILED" -eq 0 ] || exit 1
 exit 0
