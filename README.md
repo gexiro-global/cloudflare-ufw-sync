@@ -1,9 +1,9 @@
-# cf-ufw-sync
+# cloudflare-ufw-sync
 
 [![CI](https://github.com/gexiro-global/cloudflare-ufw-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/gexiro-global/cloudflare-ufw-sync/actions/workflows/ci.yml)
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-Keep a UFW allowlist in sync with Cloudflare's published IP ranges — without ever locking yourself out.
+The `cf-ufw-sync` script additively synchronizes a UFW allowlist with Cloudflare's published IP ranges, with validation and dry-run support.
 
 If your origin sits behind Cloudflare, you probably want ports 80/443 reachable only from Cloudflare's
 ranges. Those ranges change. Most published recipes solve this by flushing the firewall and rebuilding
@@ -72,7 +72,7 @@ Run it from cron once a day:
 2026-01-01T04:17:00Z OK ranges=15 added=1 add_failed=0 stale=1 dry_run=0
 ```
 
-Exit codes: `0` success, `1` fetch or sanity failure (nothing changed) **or one or more `ufw` rules failed to install**, `2` usage error. A rule that fails to install is logged as `ADD-FAIL`, is not counted as an addition, and fails the run - a firewall sync that silently reports success while changing nothing is worse than one that errors.
+Exit codes: `0` success, `1` fetch or sanity failure (nothing changed) **or one or more `ufw` rules failed to install**, `2` usage error. A rule that fails to install is logged as `ADD-FAIL`, is not counted as an addition, and fails the run — a firewall sync that silently reports success while changing nothing is worse than one that errors.
 
 ## What this tool does NOT do
 
@@ -102,4 +102,6 @@ The test runs fully offline against a synthetic fixture in `examples/` — no ne
 
 Apache-2.0. See [LICENSE](LICENSE).
 
-Built and maintained by Gexiro Global Enterprises Ltd.
+Built and maintained by [Gexiro Global Enterprises Ltd](https://gexiro.com).
+
+Part of the [Gexiro open-source toolkit](https://github.com/gexiro-global).
