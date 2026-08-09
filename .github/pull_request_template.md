@@ -4,11 +4,15 @@ Describe the change and why it is needed.
 
 ## Verification
 
-- [ ] `python -m compileall cf-ufw-sync`
-- [ ] `python -m pytest -q`
+- [ ] `shellcheck cf-ufw-sync.sh tests/test_dry_run.sh` is clean
+- [ ] `./tests/test_dry_run.sh` passes
+- [ ] Any new fail-open path (a failure or skip reported as success) has a regression test
 
-## Authorization And Ethics
+## Safety
 
-- [ ] I confirm this concerns my own or an authorized instance.
-- [ ] This change keeps cf-ufw-sync read-only for v0.x.
-- [ ] This change does not add third-party discovery or protected artifact retrieval.
+This tool edits UFW rules as root.
+
+- [ ] The change keeps it **additive-only** (it never deletes a rule) and fail-closed on
+      any error (fetch/sanity failure, lock issue, unreadable firewall state).
+- [ ] `--dry-run` still previews changes without touching the firewall.
+- [ ] `Signed-off-by:` (DCO) present.
