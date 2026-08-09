@@ -1,6 +1,6 @@
 # cf-ufw-sync
 
-[![CI](https://github.com/dzeusking-dev/cloudflare-ufw-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/dzeusking-dev/cloudflare-ufw-sync/actions/workflows/ci.yml)
+[![CI](https://github.com/gexiro-global/cloudflare-ufw-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/gexiro-global/cloudflare-ufw-sync/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 Keep a UFW allowlist in sync with Cloudflare's published IP ranges — without ever locking yourself out.
@@ -29,7 +29,7 @@ can see the diff before it exists.
 ## Install
 
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/dzeusking-dev/cloudflare-ufw-sync/main/cf-ufw-sync.sh
+curl -fsSLO https://raw.githubusercontent.com/gexiro-global/cloudflare-ufw-sync/main/cf-ufw-sync.sh
 chmod +x cf-ufw-sync.sh
 sudo mv cf-ufw-sync.sh /usr/local/bin/cf-ufw-sync
 ```
