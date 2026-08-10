@@ -4,8 +4,8 @@ Describe the change and why it is needed.
 
 ## Verification
 
-- [ ] `shellcheck cf-ufw-sync.sh tests/test_dry_run.sh` is clean
-- [ ] `./tests/test_dry_run.sh` passes
+- [ ] `shellcheck cf-ufw-sync.sh tests/run_tests.sh tests/test_dry_run.sh` is clean
+- [ ] `./tests/run_tests.sh` passes
 - [ ] Any new fail-open path (a failure or skip reported as success) has a regression test
 
 ## Safety

@@ -5,7 +5,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-- No unreleased changes.
+- Reject multicast, reserved, loopback, link-local, private, unspecified,
+  documentation, and other non-global CIDRs before generating firewall rules.
+- Add the canonical Bash test entry point at `tests/run_tests.sh`.
 
 ## [0.1.0]
 

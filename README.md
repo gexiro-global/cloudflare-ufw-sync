@@ -93,7 +93,7 @@ own session. Keep an out-of-band console available the first time you run it.
 ## Testing
 
 ```bash
-./tests/test_dry_run.sh
+./tests/run_tests.sh
 ```
 
 The test runs fully offline against a synthetic fixture in `examples/` — no network, no firewall access.

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Offline test: no network, no ufw changes. Verifies parsing, sanity bounds and dry-run.
 # shellcheck disable=SC2015,SC2016,SC2181
 # SC2015: the `[ cond ] && ok "..." || no "..."` shape is intentional here - `ok` cannot fail,
@@ -15,7 +15,7 @@ echo "$OUT" | grep -q 'DRY-RUN would-add' || { echo 'FAIL: expected dry-run add 
 echo "$OUT" | grep -q 'dry_run=1'     || { echo 'FAIL: dry-run flag not reported'; exit 1; }
 
 # sanity bound must reject a truncated list
-TMP=$(mktemp); printf '198.51.100.0/24\n' > "$TMP"
+TMP=$(mktemp); printf '173.245.48.0/20\n' > "$TMP"
 if CF_UFW_LOG=- "$HERE/../cf-ufw-sync.sh" --dry-run --source-file "$TMP" >/dev/null 2>&1; then
   echo 'FAIL: truncated list was accepted'; rm -f "$TMP"; exit 1
 fi
@@ -38,7 +38,7 @@ echo "$OUT" | grep -q 'added=0'    || { echo 'FAIL: a failed rule was counted as
 # A response that is mostly unparseable must abort. Filtering junk out and then sanity-checking
 # only the survivors lets a mangled fetch through whenever enough plausible lines remain.
 TMP2=$(mktemp)
-printf '198.51.100.0/24\n203.0.113.0/24\n192.0.2.0/24\n198.18.0.0/16\n233.252.0.0/24\n' > "$TMP2"
+printf '173.245.48.0/20\n103.21.244.0/22\n103.22.200.0/22\n103.31.4.0/22\n141.101.64.0/18\n' > "$TMP2"
 printf 'not-a-range\njunk\njunk2\njunk3\njunk4\njunk5\n' >> "$TMP2"
 set +e
 OUT=$(CF_UFW_LOG=- "$HERE/../cf-ufw-sync.sh" --dry-run --source-file "$TMP2" 2>&1)
@@ -52,8 +52,8 @@ echo "$OUT" | grep -q 'refusing to act on this list' \
 # Duplicates and comments are not junk. Counting them as unparseable both misreported the
 # warning and could reject a perfectly valid list.
 TMP3=$(mktemp)
-printf '198.51.100.0/24\n198.51.100.0/24\n203.0.113.0/24\n' > "$TMP3"
-printf '192.0.2.0/24\n198.18.0.0/16\n233.252.0.0/24\n# a comment\n' >> "$TMP3"
+printf '173.245.48.0/20\n173.245.48.0/20\n103.21.244.0/22\n' > "$TMP3"
+printf '103.22.200.0/22\n103.31.4.0/22\n141.101.64.0/18\n# a comment\n' >> "$TMP3"
 set +e
 OUT=$(CF_UFW_LOG=- "$HERE/../cf-ufw-sync.sh" --dry-run --source-file "$TMP3" 2>&1)
 RC=$?
@@ -75,6 +75,23 @@ rm -f "$BAD"
 [ "$RC" -ne 0 ] || { echo 'FAIL: a list of impossible CIDRs was accepted'; exit 1; }
 echo "$OUT" | grep -q 'range-count=0' \
   || { echo 'FAIL: invalid CIDRs were not all rejected'; exit 1; }
+
+# Syntactically valid but non-global networks are hostile input, not allow rules.
+set +e
+OUT=$(CF_UFW_LOG=- "$HERE/../cf-ufw-sync.sh" --dry-run \
+      --source-file "$HERE/fixtures/hostile-cidrs.txt" 2>&1)
+RC=$?
+set -e
+[ "$RC" -ne 0 ] || { echo 'FAIL: special-use CIDRs were accepted'; exit 1; }
+echo "$OUT" | grep -q 'range-count=0' \
+  || { echo 'FAIL: multicast/reserved/documentation/private CIDRs were not all rejected'; exit 1; }
+
+# A normal globally-routable Cloudflare-style range remains valid.
+GOOD=$(mktemp)
+printf '173.245.48.0/20\n103.21.244.0/22\n103.22.200.0/22\n103.31.4.0/22\n141.101.64.0/18\n' > "$GOOD"
+OUT=$(CF_UFW_LOG=- "$HERE/../cf-ufw-sync.sh" --dry-run --source-file "$GOOD")
+rm -f "$GOOD"
+echo "$OUT" | grep -q 'ranges=5' || { echo 'FAIL: global unicast CIDRs were rejected'; exit 1; }
 
 # Valid IPv6 must still be accepted, or --ipv6 would be useless.
 V6=$(mktemp)

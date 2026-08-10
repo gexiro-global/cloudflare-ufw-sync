@@ -103,10 +103,18 @@ fi
 # accepted 1::2::3/64 and 1:2:3:4:5:6:7:8:9/64 - IPv6 has more ways to be malformed than a
 # regex comfortably covers, and getting it wrong means handing nonsense to the firewall.
 is_cidr(){
-  CIDR_CANDIDATE="$1" python3 -c '
+  CIDR_CANDIDATE="$1" WANT_V6="$WANT_V6" python3 -c '
 import ipaddress, os, sys
 try:
-    ipaddress.ip_network(os.environ["CIDR_CANDIDATE"], strict=False)
+    network = ipaddress.ip_network(os.environ["CIDR_CANDIDATE"], strict=False)
+    if (not network.is_global or network.is_multicast or network.is_reserved
+            or network.is_loopback or network.is_link_local
+            or network.is_private or network.is_unspecified):
+        sys.exit(1)
+    # --ipv6 controls whether v6 ranges belong in this invocation; v4 remains
+    # valid in either mode because --ipv6 adds the Cloudflare v6 feed to v4.
+    if network.version == 6 and os.environ.get("WANT_V6") != "1":
+        sys.exit(1)
 except Exception:
     sys.exit(1)
 ' 2>/dev/null
